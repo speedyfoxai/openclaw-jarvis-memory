@@ -19,6 +19,11 @@ REDIS_PORT="${REDIS_PORT:-6379}"
 QDRANT_URL="${QDRANT_URL:-http://127.0.0.1:6333}"
 OLLAMA_URL="${OLLAMA_URL:-http://127.0.0.1:11434}"
 
+# Optional toggles (avoid touching host config during tests)
+SKIP_CRON="${SKIP_CRON:-0}"
+SKIP_HEARTBEAT="${SKIP_HEARTBEAT:-0}"
+SKIP_QDRANT_INIT="${SKIP_QDRANT_INIT:-0}"
+
 # Backup directory
 BACKUP_DIR="$WORKSPACE_DIR/.backups"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
@@ -238,39 +243,50 @@ echo "  ✓ Created $WORKSPACE_DIR/.memory_env"
 
 # Step 7: Initialize Qdrant collections
 echo -e "${YELLOW}[7/10] Initializing Qdrant collections...${NC}"
-python3 <<EOF
+if [ "$SKIP_QDRANT_INIT" = "1" ]; then
+  echo "  ℹ️  SKIP_QDRANT_INIT=1 set; skipping Qdrant collection init"
+else
+  python3 <<EOF
 import sys
 sys.path.insert(0, "$WORKSPACE_DIR/skills/qdrant-memory/scripts")
 from init_kimi_memories import init_collection
 init_collection()
 print("  ✓ kimi_memories collection ready")
 EOF
+fi
 
 # Step 8: Set up cron jobs
 echo -e "${YELLOW}[8/10] Setting up cron jobs...${NC}"
-CRON_FILE=$(mktemp)
-crontab -l 2>/dev/null > "$CRON_FILE" || true
+if [ "$SKIP_CRON" = "1" ]; then
+  echo "  ℹ️  SKIP_CRON=1 set; skipping crontab modifications"
+else
+  CRON_FILE=$(mktemp)
+  crontab -l 2>/dev/null > "$CRON_FILE" || true
 
-# Add memory backup cron jobs if not present
-if ! grep -q "cron_backup.py" "$CRON_FILE" 2>/dev/null; then
-    echo "" >> "$CRON_FILE"
-    echo "# Memory System - Daily backup (3:00 AM)" >> "$CRON_FILE"
-    echo "0 3 * * * cd $WORKSPACE_DIR && python3 skills/mem-redis/scripts/cron_backup.py >> /var/log/memory-backup.log 2>&1 || true" >> "$CRON_FILE"
+  # Add memory backup cron jobs if not present
+  if ! grep -q "cron_backup.py" "$CRON_FILE" 2>/dev/null; then
+      echo "" >> "$CRON_FILE"
+      echo "# Memory System - Daily backup (3:00 AM)" >> "$CRON_FILE"
+      echo "0 3 * * * cd $WORKSPACE_DIR && python3 skills/mem-redis/scripts/cron_backup.py >> /var/log/memory-backup.log 2>&1 || true" >> "$CRON_FILE"
+  fi
+
+  if ! grep -q "sliding_backup.sh" "$CRON_FILE" 2>/dev/null; then
+      echo "" >> "$CRON_FILE"
+      echo "# Memory System - File backup (3:30 AM)" >> "$CRON_FILE"
+      echo "30 3 * * * $WORKSPACE_DIR/skills/qdrant-memory/scripts/sliding_backup.sh >> /var/log/memory-backup.log 2>&1 || true" >> "$CRON_FILE"
+  fi
+
+  crontab "$CRON_FILE"
+  rm "$CRON_FILE"
+  echo "  ✓ Cron jobs configured"
 fi
-
-if ! grep -q "sliding_backup.sh" "$CRON_FILE" 2>/dev/null; then
-    echo "" >> "$CRON_FILE"
-    echo "# Memory System - File backup (3:30 AM)" >> "$CRON_FILE"
-    echo "30 3 * * * $WORKSPACE_DIR/skills/qdrant-memory/scripts/sliding_backup.sh >> /var/log/memory-backup.log 2>&1 || true" >> "$CRON_FILE"
-fi
-
-crontab "$CRON_FILE"
-rm "$CRON_FILE"
-echo "  ✓ Cron jobs configured"
 
 # Step 9: Create HEARTBEAT.md template
 echo -e "${YELLOW}[9/10] Creating HEARTBEAT.md...${NC}"
-cat > "$WORKSPACE_DIR/HEARTBEAT.md" <<'EOF'
+if [ "$SKIP_HEARTBEAT" = "1" ]; then
+  echo "  ℹ️  SKIP_HEARTBEAT=1 set; skipping HEARTBEAT.md write"
+else
+  cat > "$WORKSPACE_DIR/HEARTBEAT.md" <<'EOF'
 # HEARTBEAT.md - Memory System Automation
 
 ## Memory Buffer (Every Heartbeat)
@@ -295,7 +311,8 @@ python3 ~/.openclaw/workspace/skills/mem-redis/scripts/save_mem.py --user-id YOU
 | `q <topic>` | Search memories |
 
 EOF
-echo "  ✓ HEARTBEAT.md created"
+  echo "  ✓ HEARTBEAT.md created"
+fi
 
 # Create backup manifest
 echo ""
