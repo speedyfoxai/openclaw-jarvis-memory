@@ -1,7 +1,7 @@
 # OpenClaw Jarvis-Like Memory System - Complete Blueprint
 
-> **Version:** 1.0  
-> **Date:** February 18, 2026  
+> **Version:** 1.2.0  
+> **Date:** February 19, 2026  
 > **Purpose:** Build an AI assistant that actually remembers
 
 ---
@@ -20,6 +20,7 @@ This blueprint contains everything needed to build a production-grade, multi-lay
 | **install.sh** | One-command installer (with auto-backup) | ✅ Complete |
 | **uninstall.sh** | Recovery/uninstall script | ✅ Complete |
 | **RESTORE.md** | Manual backup/restore guide | ✅ Complete |
+| **CHANGELOG.md** | Version history | ✅ Complete |
 | **docker-compose.yml** | Infrastructure | ✅ Complete |
 
 ### Files Overview
@@ -29,6 +30,7 @@ blueprint/
 ├── install.sh                  ⭐ Main installer (auto-backs up existing files)
 ├── uninstall.sh                🧹 Recovery/uninstall script
 ├── RESTORE.md                  🛡️ Manual backup/restore guide
+├── CHANGELOG.md                📋 Version history
 ├── README.md                   ⭐ Start here
 ├── TUTORIAL.md                 🎬 YouTube script
 ├── docker-compose.yml          🐳 Infrastructure
@@ -129,11 +131,20 @@ Layer 3: Qdrant (semantic, searchable)
 
 | Metric | Value |
 |--------|-------|
-| Python Scripts | 30+ |
+| Python Scripts | 52 |
 | Lines of Code | ~5,000 |
-| Documentation | 2,000+ lines |
+| Documentation | 3,000+ lines |
 | Architecture Diagrams | 5 |
 | Skills | 3 |
+| Installer Backups | Automatic `.bak.rush` files |
+
+## Version History
+
+| **Version** | **Date** | **Changes** |
+|-------------|----------|-------------|
+| 1.2.0 | Feb 19, 2026 | Auto-backup, RESTORE.md, version tracking |
+| 1.1.0 | Feb 19, 2026 | Added uninstall.sh recovery script |
+| 1.0.0 | Feb 18, 2026 | Initial release - 52 scripts, full tutorial |
 
 ---
 
@@ -162,6 +173,7 @@ Before sharing this blueprint, verify:
 | install.sh | Automated installer (auto-backs up before changes) |
 | uninstall.sh | Recovery/uninstall script |
 | RESTORE.md | Manual backup/restore documentation |
+| CHANGELOG.md | Version history |
 | TUTORIAL.md | YouTube video script |
 | docker-compose.yml | Infrastructure as code |
 

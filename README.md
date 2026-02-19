@@ -1,6 +1,13 @@
 # OpenClaw Jarvis-Like Memory System
 
 > **Build an AI assistant that actually remembers you.**
+> 
+> **Version: 1.2.0** (February 19, 2026)
+> 
+> **Changelog:**
+> - v1.2.0: Added automatic backup to installer, RESTORE.md documentation
+> - v1.1.0: Added uninstall.sh recovery script
+> - v1.0.0: Initial release with 52 scripts, complete tutorial
 
 This is a complete blueprint for implementing a production-grade, multi-layer memory system for OpenClaw that provides persistent, searchable, cross-session context — just like Jarvis from Iron Man.
 
@@ -51,6 +58,86 @@ python3 skills/mem-redis/scripts/save_mem.py --user-id yourname
 **🔒 The installer automatically backs up** your existing `HEARTBEAT.md`, `.memory_env`, and crontab before making changes. Backups are stored in `.backups/` with timestamps.
 
 **See [RESTORE.md](RESTORE.md)** for how to restore from backups manually.
+
+---
+
+## 📋 Files Modified by Installer
+
+When you run `./install.sh`, the following files in your OpenClaw workspace are **modified** (backed up first as `.bak.rush` files):
+
+### Files That Get Modified (with Backup)
+
+| File | Location | What Installer Does | Backup Location |
+|------|----------|---------------------|-----------------|
+| **crontab** | System crontab | Adds 2 daily cron jobs for backups | `.backups/install_*_crontab.bak.rush` |
+| **HEARTBEAT.md** | `~/.openclaw/workspace/HEARTBEAT.md` | Creates or overwrites with memory automation | `.backups/install_*_HEARTBEAT.md.bak.rush` |
+| **.memory_env** | `~/.openclaw/workspace/.memory_env` | Creates environment variables file | `.backups/install_*_memory_env.bak.rush` |
+
+### Files That Get Created (New)
+
+| File | Location | Purpose |
+|------|----------|---------|
+| **52 Python scripts** | `~/.openclaw/workspace/skills/mem-redis/scripts/` (5 files)<br>`~/.openclaw/workspace/skills/qdrant-memory/scripts/` (43 files)<br>`~/.openclaw/workspace/skills/task-queue/scripts/` (3 files) | Core memory system functionality |
+| **SKILL.md** | `~/.openclaw/workspace/skills/mem-redis/SKILL.md` | Redis skill documentation |
+| **SKILL.md** | `~/.openclaw/workspace/skills/qdrant-memory/SKILL.md` | Qdrant skill documentation |
+| **SKILL.md** | `~/.openclaw/workspace/skills/task-queue/SKILL.md` | Task queue documentation |
+| **memory/** | `~/.openclaw/workspace/memory/` | Daily markdown log files directory |
+| **.gitkeep** | `~/.openclaw/workspace/memory/.gitkeep` | Keeps memory dir in git |
+| **Backup Manifest** | `~/.openclaw/workspace/.backups/install_*_MANIFEST.txt` | Lists all backups with restore commands |
+
+### Full Path List for Manual Restore
+
+If you need to restore manually without using the uninstaller, here's every single file path:
+
+**Configuration Files (Modified):**
+```
+~/.openclaw/workspace/HEARTBEAT.md          # Automation config
+~/.openclaw/workspace/.memory_env           # Environment variables
+~/.openclaw/workspace/.mem_last_turn        # State tracking (created)
+```
+
+**Skill Files (Created - 52 total scripts):**
+```
+# Redis Buffer (5 scripts)
+~/.openclaw/workspace/skills/mem-redis/scripts/hb_append.py
+~/.openclaw/workspace/skills/mem-redis/scripts/save_mem.py
+~/.openclaw/workspace/skills/mem-redis/scripts/cron_backup.py
+~/.openclaw/workspace/skills/mem-redis/scripts/mem_retrieve.py
+~/.openclaw/workspace/skills/mem-redis/scripts/search_mem.py
+~/.openclaw/workspace/skills/mem-redis/SKILL.md
+
+# Qdrant Memory (43 scripts - key ones listed)
+~/.openclaw/workspace/skills/qdrant-memory/scripts/auto_store.py
+~/.openclaw/workspace/skills/qdrant-memory/scripts/q_save.py
+~/.openclaw/workspace/skills/qdrant-memory/scripts/search_memories.py
+~/.openclaw/workspace/skills/qdrant-memory/scripts/init_kimi_memories.py
+~/.openclaw/workspace/skills/qdrant-memory/scripts/init_kimi_kb.py
+~/.openclaw/workspace/skills/qdrant-memory/scripts/init_private_court_docs.py
+~/.openclaw/workspace/skills/qdrant-memory/scripts/daily_conversation_backup.py
+~/.openclaw/workspace/skills/qdrant-memory/scripts/harvest_sessions.py
+~/.openclaw/workspace/skills/qdrant-memory/scripts/sliding_backup.sh
+~/.openclaw/workspace/skills/qdrant-memory/scripts/store_conversation.py
+~/.openclaw/workspace/skills/qdrant-memory/SKILL.md
+~/.openclaw/workspace/skills/qdrant-memory/HARVEST.md
+# ... (33 more scripts - see skills/qdrant-memory/scripts/)
+
+# Task Queue (3 scripts)
+~/.openclaw/workspace/skills/task-queue/scripts/add_task.py
+~/.openclaw/workspace/skills/task-queue/scripts/heartbeat_worker.py
+~/.openclaw/workspace/skills/task-queue/scripts/list_tasks.py
+~/.openclaw/workspace/skills/task-queue/SKILL.md
+```
+
+**Directories Created:**
+```
+~/.openclaw/workspace/skills/mem-redis/scripts/
+~/.openclaw/workspace/skills/qdrant-memory/scripts/
+~/.openclaw/workspace/skills/task-queue/scripts/
+~/.openclaw/workspace/memory/
+~/.openclaw/workspace/.backups/
+```
+
+---
 
 ### 🧹 Uninstall/Recovery
 
