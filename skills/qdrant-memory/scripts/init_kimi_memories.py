@@ -11,9 +11,11 @@ import sys
 import urllib.request
 import json
 
-QDRANT_URL = "http://10.0.0.40:6333"
-COLLECTION_NAME = "kimi_memories"
-VECTOR_SIZE = 1024
+import os
+
+QDRANT_URL = os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
+COLLECTION_NAME = os.getenv("QDRANT_COLLECTION", "kimi_memories")
+VECTOR_SIZE = int(os.getenv("QDRANT_VECTOR_SIZE", "1024"))
 
 def make_request(url, data=None, method="GET"):
     req = urllib.request.Request(url, method=method)
