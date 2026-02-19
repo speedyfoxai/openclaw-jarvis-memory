@@ -24,6 +24,9 @@ SKIP_CRON="${SKIP_CRON:-0}"
 SKIP_HEARTBEAT="${SKIP_HEARTBEAT:-0}"
 SKIP_QDRANT_INIT="${SKIP_QDRANT_INIT:-0}"
 
+# If Redis/Qdrant/Ollama aren't reachable, attempt to start them via docker compose (recommended).
+START_DOCKER="${START_DOCKER:-1}"
+
 # Backup directory
 BACKUP_DIR="$WORKSPACE_DIR/.backups"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
@@ -162,11 +165,18 @@ fi
 PYTHON_VERSION=$(python3 --version 2>&1 | awk '{print $2}')
 echo "  ✓ Python $PYTHON_VERSION found"
 
-# Step 2: Create directory structure
+# Step 2: Create directory structure + copy blueprint files
 echo -e "${YELLOW}[2/10] Creating directory structure...${NC}"
-mkdir -p "$WORKSPACE_DIR"/{skills/{mem-redis,qdrant-memory,task-queue}/scripts,memory,MEMORY_DEF}
+mkdir -p "$WORKSPACE_DIR"/{skills/{mem-redis,qdrant-memory,task-queue}/scripts,memory,MEMORY_DEF,docs,config}
 touch "$WORKSPACE_DIR/memory/.gitkeep"
-echo "  ✓ Directories created"
+
+# Copy scripts/docs from this repo into workspace (portable install)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cp -r "$SCRIPT_DIR/skills"/* "$WORKSPACE_DIR/skills/" 2>/dev/null || true
+cp -r "$SCRIPT_DIR/docs"/* "$WORKSPACE_DIR/docs/" 2>/dev/null || true
+cp -r "$SCRIPT_DIR/config"/* "$WORKSPACE_DIR/config/" 2>/dev/null || true
+
+echo "  ✓ Directories created and files copied"
 
 # Step 3: Install Python dependencies (PEP 668-safe)
 echo -e "${YELLOW}[3/10] Installing Python dependencies...${NC}"
@@ -205,28 +215,60 @@ fi
 # Step 4: Test infrastructure connectivity
 echo -e "${YELLOW}[4/10] Testing infrastructure...${NC}"
 
+docker_compose_up() {
+  local compose_dir="$(cd "$(dirname "$0")" && pwd)"
+  if docker compose version >/dev/null 2>&1; then
+    run_root docker compose -f "$compose_dir/docker-compose.yml" up -d
+  elif have_cmd docker-compose; then
+    run_root docker-compose -f "$compose_dir/docker-compose.yml" up -d
+  fi
+}
+
+redis_ok=0
+qdrant_ok=0
+ollama_ok=0
+
 # Test Redis
-if python3 -c "import redis; r=redis.Redis(host='$REDIS_HOST', port=$REDIS_PORT); r.ping()" 2>/dev/null; then
-    echo "  ✓ Redis connection OK"
-else
-    echo -e "${RED}  ✗ Redis connection failed ($REDIS_HOST:$REDIS_PORT)${NC}"
-    echo "    Make sure Redis is running and accessible"
+if "$PYTHON_BIN" -c "import redis; r=redis.Redis(host='$REDIS_HOST', port=$REDIS_PORT); r.ping()" 2>/dev/null; then
+  redis_ok=1
 fi
 
 # Test Qdrant
 if curl -s "$QDRANT_URL/collections" >/dev/null 2>&1; then
-    echo "  ✓ Qdrant connection OK"
-else
-    echo -e "${RED}  ✗ Qdrant connection failed ($QDRANT_URL)${NC}"
-    echo "    Make sure Qdrant is running and accessible"
+  qdrant_ok=1
 fi
 
 # Test Ollama
 if curl -s "$OLLAMA_URL/api/tags" >/dev/null 2>&1; then
-    echo "  ✓ Ollama connection OK"
+  ollama_ok=1
+fi
+
+if [ "$START_DOCKER" = "1" ] && { [ $redis_ok -eq 0 ] || [ $qdrant_ok -eq 0 ] || [ $ollama_ok -eq 0 ]; }; then
+  echo "  ℹ️  Infrastructure not reachable; attempting to start via docker compose"
+  docker_compose_up || true
+  sleep 2
+  if "$PYTHON_BIN" -c "import redis; r=redis.Redis(host='$REDIS_HOST', port=$REDIS_PORT); r.ping()" 2>/dev/null; then redis_ok=1; fi
+  if curl -s "$QDRANT_URL/collections" >/dev/null 2>&1; then qdrant_ok=1; fi
+  if curl -s "$OLLAMA_URL/api/tags" >/dev/null 2>&1; then ollama_ok=1; fi
+fi
+
+if [ $redis_ok -eq 1 ]; then
+  echo "  ✓ Redis connection OK"
 else
-    echo -e "${RED}  ✗ Ollama connection failed ($OLLAMA_URL)${NC}"
-    echo "    Make sure Ollama is running with snowflake-arctic-embed2 model"
+  echo -e "${RED}  ✗ Redis connection failed ($REDIS_HOST:$REDIS_PORT)${NC}"
+fi
+
+if [ $qdrant_ok -eq 1 ]; then
+  echo "  ✓ Qdrant connection OK"
+else
+  echo -e "${RED}  ✗ Qdrant connection failed ($QDRANT_URL)${NC}"
+fi
+
+if [ $ollama_ok -eq 1 ]; then
+  echo "  ✓ Ollama connection OK"
+else
+  echo -e "${YELLOW}  ⚠️ Ollama not reachable ($OLLAMA_URL)${NC}"
+  echo "    Embeddings will fail until Ollama is running with snowflake-arctic-embed2."
 fi
 
 # Step 5: Backup existing files before modifying
