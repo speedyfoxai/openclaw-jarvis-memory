@@ -1,6 +1,6 @@
 # OpenClaw Jarvis-Like Memory System - Complete Blueprint
 
-> **Version:** 1.3.0  
+> **Version:** 1.4.0  
 > **Date:** February 19, 2026  
 > **Purpose:** Build an AI assistant that actually remembers
 
@@ -142,6 +142,7 @@ Layer 3: Qdrant (semantic, searchable)
 
 | **Version** | **Date** | **Changes** |
 |-------------|----------|-------------|
+| 1.4.0 | Feb 19, 2026 | Compaction threshold recommendation (90%), manual setup docs |
 | 1.3.0 | Feb 19, 2026 | Command reference, known issues documentation |
 | 1.2.0 | Feb 19, 2026 | Auto-backup, RESTORE.md, version tracking |
 | 1.1.0 | Feb 19, 2026 | Added uninstall.sh recovery script |

@@ -2,9 +2,10 @@
 
 > **Build an AI assistant that actually remembers you.**
 > 
-> **Version: 1.3.0** (February 19, 2026)
+> **Version: 1.4.0** (February 19, 2026)
 > 
 > **Changelog:**
+> - v1.4.0: Added compaction threshold recommendation (90%) with manual setup steps
 > - v1.3.0: Added complete command reference, documented known issues with compaction timing
 > - v1.2.0: Added automatic backup to installer, RESTORE.md documentation
 > - v1.1.0: Added uninstall.sh recovery script
@@ -420,8 +421,43 @@ There is a small timing window where data can be lost:
 - The cron job at 3:00 AM catches anything missed during the day
 - Use `save q` for critical exchanges (goes directly to Qdrant immediately)
 
-**Status:**  
-This is a known architectural limitation with session file rotation. The daily flush is the safety net.
+### Recommendation: Adjust Compaction Threshold
+
+To reduce how often this issue occurs, **set OpenClaw's session compaction threshold to 90%** (default is often lower). This makes compaction happen less frequently, shrinking the timing window.
+
+**Manual Steps (Not in Installer):**
+
+1. **Locate your OpenClaw config:**
+   ```bash
+   # Find your OpenClaw configuration file
+   ls ~/.openclaw/config/  # or wherever your config lives
+   ```
+
+2. **Edit the compaction setting:**
+   ```bash
+   # Look for session or compaction settings
+   # Add or modify:
+   # "session_compaction_threshold": 90
+   ```
+
+3. **Alternative - via environment variable:**
+   ```bash
+   # Add to your shell profile or .memory_env:
+   export OPENCLAW_COMPACTION_THRESHOLD=90
+   ```
+
+4. **Restart OpenClaw gateway:**
+   ```bash
+   openclaw gateway restart
+   ```
+
+**Why 90%?**
+- Default is often 50-70%, causing frequent compactions
+- 90% means files grow larger before rotation
+- Less frequent compaction = smaller timing window for data loss
+- Still protects disk space from runaway log files
+
+**Note:** The installer does NOT change this setting automatically, as it requires OpenClaw gateway restart and may vary by installation. This is a manual optimization step.
 
 ---
 

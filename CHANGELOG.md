@@ -2,6 +2,19 @@
 
 All notable changes to the OpenClaw Jarvis-Like Memory System blueprint.
 
+## [1.4.0] - 2026-02-19
+
+### Added
+- **Compaction threshold recommendation** - Added guide to set OpenClaw to 90% to reduce timing window
+- **Manual setup steps** - Clear instructions (not automated) for adjusting compaction setting
+- **Explanation** - Why 90% helps and how it relates to the known timing issue
+
+### Changed
+- README Known Issues section expanded with "Adjust Compaction Threshold" subsection
+- Added manual configuration steps that users should do post-installation
+
+---
+
 ## [1.3.0] - 2026-02-19
 
 ### Added
