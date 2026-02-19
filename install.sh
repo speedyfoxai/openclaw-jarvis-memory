@@ -14,10 +14,18 @@ NC='\033[0m' # No Color
 # Configuration
 WORKSPACE_DIR="${WORKSPACE_DIR:-$HOME/.openclaw/workspace}"
 USER_ID="${USER_ID:-$(whoami)}"
-REDIS_HOST="${REDIS_HOST:-10.0.0.36}"
+REDIS_HOST="${REDIS_HOST:-127.0.0.1}"
 REDIS_PORT="${REDIS_PORT:-6379}"
-QDRANT_URL="${QDRANT_URL:-http://10.0.0.40:6333}"
-OLLAMA_URL="${OLLAMA_URL:-http://10.0.0.10:11434}"
+QDRANT_URL="${QDRANT_URL:-http://127.0.0.1:6333}"
+OLLAMA_URL="${OLLAMA_URL:-http://127.0.0.1:11434}"
+
+# Optional toggles (avoid touching host config during tests)
+SKIP_CRON="${SKIP_CRON:-0}"
+SKIP_HEARTBEAT="${SKIP_HEARTBEAT:-0}"
+SKIP_QDRANT_INIT="${SKIP_QDRANT_INIT:-0}"
+
+# If Redis/Qdrant/Ollama aren't reachable, attempt to start them via docker compose (recommended).
+START_DOCKER="${START_DOCKER:-1}"
 
 # Backup directory
 BACKUP_DIR="$WORKSPACE_DIR/.backups"
@@ -46,57 +54,226 @@ backup_file() {
     return 1
 }
 
-# Step 1: Check Python version
-echo -e "${YELLOW}[1/9] Checking Python...${NC}"
-if command -v python3 &>/dev/null; then
-    PYTHON_VERSION=$(python3 --version 2>&1 | awk '{print $2}')
-    echo "  ✓ Python $PYTHON_VERSION found"
-else
-    echo -e "${RED}  ✗ Python 3 not found. Please install Python 3.8+${NC}"
+# Helpers
+have_cmd() { command -v "$1" >/dev/null 2>&1; }
+
+need_sudo() {
+  if [ "$(id -u)" -eq 0 ]; then
+    return 1
+  fi
+  return 0
+}
+
+run_root() {
+  if need_sudo; then
+    sudo "$@"
+  else
+    "$@"
+  fi
+}
+
+install_pkg_debian() {
+  local pkgs=("$@")
+  run_root apt-get update -y
+  run_root apt-get install -y "${pkgs[@]}"
+}
+
+install_docker_debian() {
+  # Prefer distro packages for speed/simplicity.
+  install_pkg_debian ca-certificates curl gnupg lsb-release
+  if ! have_cmd docker; then
+    install_pkg_debian docker.io
+    run_root systemctl enable --now docker >/dev/null 2>&1 || true
+  fi
+  # docker compose v2 plugin (preferred)
+  if ! docker compose version >/dev/null 2>&1; then
+    install_pkg_debian docker-compose-plugin || true
+  fi
+  # fallback: docker-compose v1
+  if ! docker compose version >/dev/null 2>&1 && ! have_cmd docker-compose; then
+    install_pkg_debian docker-compose || true
+  fi
+}
+
+# Step 1: Check/install system dependencies
+echo -e "${YELLOW}[1/10] Checking system dependencies...${NC}"
+
+if ! have_cmd curl; then
+  echo "  • Installing curl"
+  if have_cmd apt-get; then
+    install_pkg_debian curl
+  else
+    echo -e "${RED}  ✗ Missing curl and no supported package manager detected.${NC}"
     exit 1
+  fi
 fi
 
-# Step 2: Create directory structure
-echo -e "${YELLOW}[2/9] Creating directory structure...${NC}"
-mkdir -p "$WORKSPACE_DIR"/{skills/{mem-redis,qdrant-memory,task-queue}/scripts,memory,MEMORY_DEF}
-touch "$WORKSPACE_DIR/memory/.gitkeep"
-echo "  ✓ Directories created"
+# Useful for quick testing (optional)
+if ! have_cmd redis-cli; then
+  echo "  • Installing redis-cli (redis-tools)"
+  if have_cmd apt-get; then
+    install_pkg_debian redis-tools
+  fi
+fi
 
-# Step 3: Install Python dependencies
-echo -e "${YELLOW}[3/9] Installing Python dependencies...${NC}"
-pip3 install --user redis qdrant-client requests urllib3 2>/dev/null || pip3 install redis qdrant-client requests urllib3
-echo "  ✓ Dependencies installed"
+if ! have_cmd python3; then
+  echo "  • Installing python3"
+  if have_cmd apt-get; then
+    install_pkg_debian python3 python3-pip python3-venv
+  else
+    echo -e "${RED}  ✗ Python 3 not found. Please install Python 3.8+${NC}"
+    exit 1
+  fi
+fi
+
+if ! have_cmd pip3; then
+  echo "  • Installing pip3"
+  if have_cmd apt-get; then
+    install_pkg_debian python3-pip python3-venv
+  else
+    echo -e "${RED}  ✗ pip3 not found. Please install python3-pip${NC}"
+    exit 1
+  fi
+fi
+
+# Docker is optional but recommended (used by docker-compose.yml)
+if ! have_cmd docker; then
+  echo "  • Docker not found — installing"
+  if have_cmd apt-get; then
+    install_docker_debian
+  else
+    echo -e "${RED}  ✗ Docker not found and no supported package manager detected.${NC}"
+    echo "    Install Docker manually, then re-run install.sh"
+    exit 1
+  fi
+else
+  echo "  ✓ Docker found"
+fi
+
+# Docker compose (v2 plugin preferred)
+if docker compose version >/dev/null 2>&1; then
+  echo "  ✓ docker compose (v2) found"
+elif have_cmd docker-compose; then
+  echo "  ✓ docker-compose (v1) found"
+else
+  echo "  • docker compose not found — attempting install"
+  if have_cmd apt-get; then
+    install_docker_debian
+  fi
+fi
+
+PYTHON_VERSION=$(python3 --version 2>&1 | awk '{print $2}')
+echo "  ✓ Python $PYTHON_VERSION found"
+
+# Step 2: Create directory structure + copy blueprint files
+echo -e "${YELLOW}[2/10] Creating directory structure...${NC}"
+mkdir -p "$WORKSPACE_DIR"/{skills/{mem-redis,qdrant-memory,task-queue}/scripts,memory,MEMORY_DEF,docs,config}
+touch "$WORKSPACE_DIR/memory/.gitkeep"
+
+# Copy scripts/docs from this repo into workspace (portable install)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cp -r "$SCRIPT_DIR/skills"/* "$WORKSPACE_DIR/skills/" 2>/dev/null || true
+cp -r "$SCRIPT_DIR/docs"/* "$WORKSPACE_DIR/docs/" 2>/dev/null || true
+cp -r "$SCRIPT_DIR/config"/* "$WORKSPACE_DIR/config/" 2>/dev/null || true
+
+echo "  ✓ Directories created and files copied"
+
+# Step 3: Install Python dependencies (PEP 668-safe)
+echo -e "${YELLOW}[3/10] Installing Python dependencies...${NC}"
+REQ_FILE="$(dirname "$0")/requirements.txt"
+PYTHON_BIN="python3"
+
+pip_user_install() {
+  if [ -f "$REQ_FILE" ]; then
+    pip3 install --user -r "$REQ_FILE"
+  else
+    pip3 install --user redis qdrant-client requests urllib3
+  fi
+}
+
+pip_venv_install() {
+  local venv_dir="$WORKSPACE_DIR/.venv"
+  python3 -m venv "$venv_dir"
+  "$venv_dir/bin/pip" install --upgrade pip setuptools wheel >/dev/null 2>&1 || true
+  if [ -f "$REQ_FILE" ]; then
+    "$venv_dir/bin/pip" install -r "$REQ_FILE"
+  else
+    "$venv_dir/bin/pip" install redis qdrant-client requests urllib3
+  fi
+  PYTHON_BIN="$venv_dir/bin/python"
+}
+
+# Try user install first (fast path)
+if pip_user_install >/dev/null 2>&1; then
+  echo "  ✓ Dependencies installed (pip --user)"
+else
+  echo "  ℹ️  pip --user install blocked (PEP 668). Creating venv in $WORKSPACE_DIR/.venv"
+  pip_venv_install
+  echo "  ✓ Dependencies installed (venv)"
+fi
 
 # Step 4: Test infrastructure connectivity
-echo -e "${YELLOW}[4/9] Testing infrastructure...${NC}"
+echo -e "${YELLOW}[4/10] Testing infrastructure...${NC}"
+
+docker_compose_up() {
+  local compose_dir="$(cd "$(dirname "$0")" && pwd)"
+  if docker compose version >/dev/null 2>&1; then
+    run_root docker compose -f "$compose_dir/docker-compose.yml" up -d
+  elif have_cmd docker-compose; then
+    run_root docker-compose -f "$compose_dir/docker-compose.yml" up -d
+  fi
+}
+
+redis_ok=0
+qdrant_ok=0
+ollama_ok=0
 
 # Test Redis
-if python3 -c "import redis; r=redis.Redis(host='$REDIS_HOST', port=$REDIS_PORT); r.ping()" 2>/dev/null; then
-    echo "  ✓ Redis connection OK"
-else
-    echo -e "${RED}  ✗ Redis connection failed ($REDIS_HOST:$REDIS_PORT)${NC}"
-    echo "    Make sure Redis is running and accessible"
+if "$PYTHON_BIN" -c "import redis; r=redis.Redis(host='$REDIS_HOST', port=$REDIS_PORT); r.ping()" 2>/dev/null; then
+  redis_ok=1
 fi
 
 # Test Qdrant
 if curl -s "$QDRANT_URL/collections" >/dev/null 2>&1; then
-    echo "  ✓ Qdrant connection OK"
-else
-    echo -e "${RED}  ✗ Qdrant connection failed ($QDRANT_URL)${NC}"
-    echo "    Make sure Qdrant is running and accessible"
+  qdrant_ok=1
 fi
 
 # Test Ollama
 if curl -s "$OLLAMA_URL/api/tags" >/dev/null 2>&1; then
-    echo "  ✓ Ollama connection OK"
+  ollama_ok=1
+fi
+
+if [ "$START_DOCKER" = "1" ] && { [ $redis_ok -eq 0 ] || [ $qdrant_ok -eq 0 ] || [ $ollama_ok -eq 0 ]; }; then
+  echo "  ℹ️  Infrastructure not reachable; attempting to start via docker compose"
+  docker_compose_up || true
+  sleep 2
+  if "$PYTHON_BIN" -c "import redis; r=redis.Redis(host='$REDIS_HOST', port=$REDIS_PORT); r.ping()" 2>/dev/null; then redis_ok=1; fi
+  if curl -s "$QDRANT_URL/collections" >/dev/null 2>&1; then qdrant_ok=1; fi
+  if curl -s "$OLLAMA_URL/api/tags" >/dev/null 2>&1; then ollama_ok=1; fi
+fi
+
+if [ $redis_ok -eq 1 ]; then
+  echo "  ✓ Redis connection OK"
 else
-    echo -e "${RED}  ✗ Ollama connection failed ($OLLAMA_URL)${NC}"
-    echo "    Make sure Ollama is running with snowflake-arctic-embed2 model"
+  echo -e "${RED}  ✗ Redis connection failed ($REDIS_HOST:$REDIS_PORT)${NC}"
+fi
+
+if [ $qdrant_ok -eq 1 ]; then
+  echo "  ✓ Qdrant connection OK"
+else
+  echo -e "${RED}  ✗ Qdrant connection failed ($QDRANT_URL)${NC}"
+fi
+
+if [ $ollama_ok -eq 1 ]; then
+  echo "  ✓ Ollama connection OK"
+else
+  echo -e "${YELLOW}  ⚠️ Ollama not reachable ($OLLAMA_URL)${NC}"
+  echo "    Embeddings will fail until Ollama is running with snowflake-arctic-embed2."
 fi
 
 # Step 5: Backup existing files before modifying
 echo ""
-echo -e "${YELLOW}[5/9] Creating backups of existing files...${NC}"
+echo -e "${YELLOW}[5/10] Creating backups of existing files...${NC}"
 BACKUP_COUNT=0
 
 # Backup existing crontab
@@ -126,7 +303,7 @@ fi
 
 # Step 6: Create environment configuration
 echo ""
-echo -e "${YELLOW}[6/9] Creating environment configuration...${NC}"
+echo -e "${YELLOW}[6/10] Creating environment configuration...${NC}"
 cat > "$WORKSPACE_DIR/.memory_env" <<EOF
 # Memory System Environment Variables
 export WORKSPACE_DIR="$WORKSPACE_DIR"
@@ -135,45 +312,61 @@ export REDIS_HOST="$REDIS_HOST"
 export REDIS_PORT="$REDIS_PORT"
 export QDRANT_URL="$QDRANT_URL"
 export OLLAMA_URL="$OLLAMA_URL"
+export MEMORY_PYTHON="$PYTHON_BIN"
 export MEMORY_INITIALIZED="true"
 EOF
 echo "  ✓ Created $WORKSPACE_DIR/.memory_env"
 
 # Step 7: Initialize Qdrant collections
-echo -e "${YELLOW}[7/9] Initializing Qdrant collections...${NC}"
-python3 <<EOF
+echo -e "${YELLOW}[7/10] Initializing Qdrant collections...${NC}"
+if [ "$SKIP_QDRANT_INIT" = "1" ]; then
+  echo "  ℹ️  SKIP_QDRANT_INIT=1 set; skipping Qdrant collection init"
+else
+  "$PYTHON_BIN" <<EOF
 import sys
 sys.path.insert(0, "$WORKSPACE_DIR/skills/qdrant-memory/scripts")
-from init_kimi_memories import init_collection
-init_collection()
+# init_kimi_memories exposes create_collection() in this blueprint
+from init_kimi_memories import create_collection, collection_exists
+if not collection_exists():
+    ok = create_collection()
+    if not ok:
+        raise SystemExit(1)
 print("  ✓ kimi_memories collection ready")
 EOF
+fi
 
 # Step 8: Set up cron jobs
-echo -e "${YELLOW}[8/9] Setting up cron jobs...${NC}"
-CRON_FILE=$(mktemp)
-crontab -l 2>/dev/null > "$CRON_FILE" || true
+echo -e "${YELLOW}[8/10] Setting up cron jobs...${NC}"
+if [ "$SKIP_CRON" = "1" ]; then
+  echo "  ℹ️  SKIP_CRON=1 set; skipping crontab modifications"
+else
+  CRON_FILE=$(mktemp)
+  crontab -l 2>/dev/null > "$CRON_FILE" || true
 
-# Add memory backup cron jobs if not present
-if ! grep -q "cron_backup.py" "$CRON_FILE" 2>/dev/null; then
-    echo "" >> "$CRON_FILE"
-    echo "# Memory System - Daily backup (3:00 AM)" >> "$CRON_FILE"
-    echo "0 3 * * * cd $WORKSPACE_DIR && python3 skills/mem-redis/scripts/cron_backup.py >> /var/log/memory-backup.log 2>&1 || true" >> "$CRON_FILE"
+  # Add memory backup cron jobs if not present
+  if ! grep -q "cron_backup.py" "$CRON_FILE" 2>/dev/null; then
+      echo "" >> "$CRON_FILE"
+      echo "# Memory System - Daily backup (3:00 AM)" >> "$CRON_FILE"
+      echo "0 3 * * * cd $WORKSPACE_DIR && $PYTHON_BIN skills/mem-redis/scripts/cron_backup.py >> /var/log/memory-backup.log 2>&1 || true" >> "$CRON_FILE"
+  fi
+
+  if ! grep -q "sliding_backup.sh" "$CRON_FILE" 2>/dev/null; then
+      echo "" >> "$CRON_FILE"
+      echo "# Memory System - File backup (3:30 AM)" >> "$CRON_FILE"
+      echo "30 3 * * * $WORKSPACE_DIR/skills/qdrant-memory/scripts/sliding_backup.sh >> /var/log/memory-backup.log 2>&1 || true" >> "$CRON_FILE"
+  fi
+
+  crontab "$CRON_FILE"
+  rm "$CRON_FILE"
+  echo "  ✓ Cron jobs configured"
 fi
-
-if ! grep -q "sliding_backup.sh" "$CRON_FILE" 2>/dev/null; then
-    echo "" >> "$CRON_FILE"
-    echo "# Memory System - File backup (3:30 AM)" >> "$CRON_FILE"
-    echo "30 3 * * * $WORKSPACE_DIR/skills/qdrant-memory/scripts/sliding_backup.sh >> /var/log/memory-backup.log 2>&1 || true" >> "$CRON_FILE"
-fi
-
-crontab "$CRON_FILE"
-rm "$CRON_FILE"
-echo "  ✓ Cron jobs configured"
 
 # Step 9: Create HEARTBEAT.md template
-echo -e "${YELLOW}[9/9] Creating HEARTBEAT.md...${NC}"
-cat > "$WORKSPACE_DIR/HEARTBEAT.md" <<'EOF'
+echo -e "${YELLOW}[9/10] Creating HEARTBEAT.md...${NC}"
+if [ "$SKIP_HEARTBEAT" = "1" ]; then
+  echo "  ℹ️  SKIP_HEARTBEAT=1 set; skipping HEARTBEAT.md write"
+else
+  cat > "$WORKSPACE_DIR/HEARTBEAT.md" <<'EOF'
 # HEARTBEAT.md - Memory System Automation
 
 ## Memory Buffer (Every Heartbeat)
@@ -181,7 +374,7 @@ cat > "$WORKSPACE_DIR/HEARTBEAT.md" <<'EOF'
 Saves current session context to Redis buffer:
 
 ```bash
-python3 /root/.openclaw/workspace/skills/mem-redis/scripts/save_mem.py --user-id YOUR_USER_ID
+python3 ~/.openclaw/workspace/skills/mem-redis/scripts/save_mem.py --user-id YOUR_USER_ID
 ```
 
 ## Daily Backup Schedule
@@ -198,7 +391,8 @@ python3 /root/.openclaw/workspace/skills/mem-redis/scripts/save_mem.py --user-id
 | `q <topic>` | Search memories |
 
 EOF
-echo "  ✓ HEARTBEAT.md created"
+  echo "  ✓ HEARTBEAT.md created"
+fi
 
 # Create backup manifest
 echo ""
@@ -252,7 +446,7 @@ if [ $BACKUP_COUNT -gt 0 ]; then
 fi
 echo "Next steps:"
 echo "  1. Source the environment: source $WORKSPACE_DIR/.memory_env"
-echo "  2. Test the system: python3 $WORKSPACE_DIR/skills/mem-redis/scripts/save_mem.py --user-id $USER_ID"
+echo "  2. Test the system: $PYTHON_BIN $WORKSPACE_DIR/skills/mem-redis/scripts/save_mem.py --user-id $USER_ID"
 echo "  3. Add to your HEARTBEAT.md to enable automatic saving"
 echo ""
 echo "To undo installation:"

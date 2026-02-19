@@ -13,11 +13,13 @@ services:
     environment:
       - QDRANT__SERVICE__HTTP_PORT=6333
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/collections"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+    # qdrant image does not ship with curl/wget; disable container-level healthcheck.
+    # Host-level checks (curl to localhost:6333) are sufficient.
+    # healthcheck:
+    #   test: ["CMD", "sh", "-lc", ": </dev/tcp/127.0.0.1/6333" ]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
 
   # Fast Buffer - Short-term memory accumulation
   redis:
