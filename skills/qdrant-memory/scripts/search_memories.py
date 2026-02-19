@@ -12,9 +12,11 @@ import sys
 import urllib.request
 from datetime import datetime
 
-QDRANT_URL = "http://10.0.0.40:6333"
-COLLECTION_NAME = "kimi_memories"
-OLLAMA_URL = "http://localhost:11434/v1"
+import os
+
+QDRANT_URL = os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
+COLLECTION_NAME = os.getenv("QDRANT_COLLECTION", "kimi_memories")
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/v1")
 
 def get_embedding(text):
     """Generate embedding using snowflake-arctic-embed2 via Ollama"""
