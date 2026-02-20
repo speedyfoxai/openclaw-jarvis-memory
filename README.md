@@ -122,7 +122,6 @@ If you need to restore manually without using the uninstaller, here's every sing
 ~/.openclaw/workspace/skills/qdrant-memory/scripts/search_memories.py
 ~/.openclaw/workspace/skills/qdrant-memory/scripts/init_kimi_memories.py
 ~/.openclaw/workspace/skills/qdrant-memory/scripts/init_kimi_kb.py
-~/.openclaw/workspace/skills/qdrant-memory/scripts/init_private_court_docs.py
 ~/.openclaw/workspace/skills/qdrant-memory/scripts/daily_conversation_backup.py
 ~/.openclaw/workspace/skills/qdrant-memory/scripts/harvest_sessions.py
 ~/.openclaw/workspace/skills/qdrant-memory/scripts/sliding_backup.sh
@@ -330,7 +329,6 @@ export OLLAMA_URL="http://127.0.0.1:11434"
 cd ~/.openclaw/workspace/skills/qdrant-memory/scripts
 python3 init_kimi_memories.py
 python3 init_kimi_kb.py
-python3 init_private_court_docs.py
 ```
 
 ### Step 5: Set Up Cron
