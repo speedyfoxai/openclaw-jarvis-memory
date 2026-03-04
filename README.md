@@ -1,3 +1,34 @@
+# ⚠️ DEPRECATED
+
+**This repository is DEPRECATED and no longer maintained.**
+
+## Use Instead
+
+**[openclaw-true-recall-base](https://github.com/speedyfoxai/openclaw-true-recall-base)** — The new unified memory system that replaces this.
+
+### What Changed
+
+| Old (This Repo) | New (Use This) |
+|-----------------|----------------|
+| `openclaw-jarvis-memory` | [`openclaw-true-recall-base`](https://github.com/speedyfoxai/openclaw-true-recall-base) |
+| v1.5.0 (Feb 2026) | v1.2 (March 2026) |
+| Redis + Qdrant + Markdown | Qdrant-only foundation |
+| 52 scripts | Streamlined watcher |
+| Manual cron setup | Automated real-time capture |
+
+### Why Migrate
+
+The new `true-recall-base` provides:
+- ✅ **Real-time capture** — No cron needed, instant storage
+- ✅ **Priority-based session detection** — Never misses main session  
+- ✅ **100% validated** — Dual subagent verification
+- ✅ **Simpler architecture** — One foundation, extensible addons
+- ✅ **Active maintenance** — v1.2 with lock validation
+
+**Repository:** https://github.com/speedyfoxai/openclaw-true-recall-base
+
+---
+
 # OpenClaw Jarvis-Like Memory System
 
 > **Build an AI assistant that actually remembers you.**
